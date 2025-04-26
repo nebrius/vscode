@@ -2,6 +2,18 @@
 	"version": "0.1.0",
 	"configurations": [
 		{
+			"name": "Compare",
+			"program": "${workspaceFolder}/compare.ts",
+			"request": "launch",
+			"skipFiles": [
+				"<node_internals>/**"
+			],
+			"runtimeArgs": [
+				"--experimental-strip-types"
+			],
+			"type": "node"
+		},
+		{
 			"type": "node",
 			"request": "launch",
 			"name": "Gulp Build",
