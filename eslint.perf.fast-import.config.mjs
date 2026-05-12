@@ -1,12 +1,11 @@
 import { join } from 'node:path';
 
+import { defineConfig } from 'eslint/config';
 import tsParser from '@typescript-eslint/parser';
-import { getDirname } from 'cross-dirname';
-import tseslint from 'typescript-eslint';
 
-import plugin from 'eslint-plugin-fast-import';
+import plugin from 'import-integrity-lint';
 
-export default tseslint.config({
+export default defineConfig({
   files: ['src/**/*.{js,mjs,jsx,ts,tsx,mts}'],
   languageOptions: {
     parser: tsParser,
@@ -14,17 +13,17 @@ export default tseslint.config({
     sourceType: 'module',
   },
   plugins: {
-    'fast-import': plugin,
+    'import-integrity': plugin,
   },
   settings: {
-    'fast-import': {
-      packageRootDir: join(getDirname(), 'src'),
+    'import-integrity': {
+      packageRootDir: join(import.meta.dirname, 'src'),
       debugLogging: true
     },
   },
   rules: {
-    'fast-import/no-cycle': 'error',
-    'fast-import/no-unused-exports': 'error',
-    'fast-import/no-unresolved-imports': 'error',
+    'import-integrity/no-cycle': 'error',
+    'import-integrity/no-unused-exports': 'error',
+    'import-integrity/no-unresolved-imports': 'error',
   },
 });

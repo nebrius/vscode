@@ -3,9 +3,7 @@ import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
-import { getDirname } from 'cross-dirname';
-
-const ROOT_DIR = getDirname();
+const ROOT_DIR = import.meta.dirname;
 const RUNS_PER_CONFIG = 5;
 
 function formatDuration(duration: number) {
@@ -27,7 +25,7 @@ type RunResult = {
   count: number;
 };
 
-function runLintOnce(config: string, ruleCode: string): Promise<RunResult> {
+function runLintOnce(config: string): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const start = performance.now();
     const proc = spawn(
@@ -64,7 +62,7 @@ function runLintOnce(config: string, ruleCode: string): Promise<RunResult> {
         );
       }
 
-      let parsed: { diagnostics?: Array<{ code?: string }> };
+      let parsed: { diagnostics?: Array<{ severity?: string }> };
       try {
         parsed = JSON.parse(stdout);
       } catch (err) {
@@ -78,7 +76,7 @@ function runLintOnce(config: string, ruleCode: string): Promise<RunResult> {
       const diagnostics = parsed.diagnostics ?? [];
       let count = 0;
       for (const diag of diagnostics) {
-        if (diag.code === ruleCode) {
+        if (diag.severity === 'error') {
           count++;
         }
       }
@@ -97,13 +95,12 @@ type AggregateResult = {
 
 async function runLint(
   label: string,
-  config: string,
-  ruleCode: string
+  config: string
 ): Promise<AggregateResult> {
   const durations: number[] = [];
   const counts: number[] = [];
   for (let i = 0; i < RUNS_PER_CONFIG; i++) {
-    const { duration, count } = await runLintOnce(config, ruleCode);
+    const { duration, count } = await runLintOnce(config);
     durations.push(duration);
     counts.push(count);
     console.log(
@@ -129,22 +126,19 @@ async function runLint(
 console.log(`Running Baseline (no-debugger)`);
 const baselineResult = await runLint(
   'Baseline',
-  'oxlint.perf.baseline.config.ts',
-  'eslint(no-debugger)'
+  'oxlint.perf.baseline.config.ts'
 );
 
 console.log(`Running Import`);
 const importResult = await runLint(
   'Import',
-  'oxlint.perf.import.config.ts',
-  'eslint-plugin-import(no-cycle)'
+  'oxlint.perf.import.config.ts'
 );
 
 console.log(`Running Fast Import`);
 const fastImportResult = await runLint(
   'Fast Import',
-  'oxlint.perf.fast-import.config.ts',
-  'fast-import(no-cycle)'
+  'oxlint.perf.fast-import.config.ts'
 );
 
 function formatCountRange(result: AggregateResult) {

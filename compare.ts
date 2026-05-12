@@ -2,9 +2,7 @@
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 
-import { getDirname } from 'cross-dirname';
-
-const ROOT_DIR = getDirname();
+const ROOT_DIR = import.meta.dirname;
 
 function formatDuration(duration: number) {
   const roundedDuration = Math.round(duration * 10) / 10;
@@ -110,9 +108,9 @@ async function runLint(
 console.log(`Running Fast Import`);
 
 const fastImportTime = await runLint('eslint.perf.fast-import.config.mjs', {
-  unused: 'fast-import/no-unused-exports',
-  cycle: 'fast-import/no-cycle',
-  unresolved: 'fast-import/no-unresolved-imports',
+  unused: 'import-integrity/no-unused-exports',
+  cycle: 'import-integrity/no-cycle',
+  unresolved: 'import-integrity/no-unresolved-imports',
 });
 
 console.log(`Running Import`);

@@ -3,13 +3,13 @@ import { join } from 'node:path';
 import { defineConfig } from 'oxlint';
 
 export default defineConfig({
-  jsPlugins: [{ name: 'fast-import', specifier: 'eslint-plugin-fast-import' }],
+  jsPlugins: [{ name: 'import-integrity', specifier: 'import-integrity-lint' }],
   categories: { correctness: 'off' },
   rules: {
-    'fast-import/no-cycle': 'error',
+    'import-integrity/no-cycle': 'error',
   },
   settings: {
-    'fast-import': {
+    'import-integrity': {
       packageRootDir: join(import.meta.dirname, 'src'),
     },
   },

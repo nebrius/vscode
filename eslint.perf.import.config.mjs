@@ -1,8 +1,8 @@
 import tsParser from '@typescript-eslint/parser';
+import { defineConfig } from 'eslint/config';
 import pluginImport from 'eslint-plugin-import';
-import tseslint from 'typescript-eslint';
 
-export default tseslint.config(
+export default defineConfig(
   {
     files: ['src/**/*.{js,mjs,jsx,ts,tsx,mts}'],
     languageOptions: {
@@ -11,15 +11,21 @@ export default tseslint.config(
       sourceType: 'module',
     },
     settings: {
+      'import/extensions': ['.ts', '.tsx', '.cts', '.mts', '.js', '.jsx', '.cjs', '.mjs'],
+      'import/parsers': {
+        '@typescript-eslint/parser': ['.ts', '.tsx', '.cts', '.mts'],
+      },
       'import/resolver': {
         typescript: true,
         node: true,
       },
     },
-    extends: [pluginImport.flatConfigs.recommended, pluginImport.flatConfigs.typescript],
+    plugins: {
+      'import': pluginImport,
+    },
     rules: {
       'import/no-cycle': 'error',
-      'import/no-unused-modules': ['error', { 'unusedExports': true }],
+      'import/no-unused-modules': ['error', { 'unusedExports': true, src: ['src/**/*.{js,mjs,jsx,ts,tsx,mts}'] }],
       'import/no-unresolved': 'error',
     },
   }
