@@ -4,7 +4,7 @@ import { createTypeScriptImportResolver } from 'eslint-import-resolver-typescrip
 import pluginImportX from 'eslint-plugin-import-x';
 
 export default defineConfig({
-  files: ['src/**/*.{js,mjs,jsx,ts,tsx,mts}'],
+  files: ['src/**/*.{cjs,js,mjs,jsx,ts,tsx,cts,mts}'],
   languageOptions: {
     parser: tsParser,
     ecmaVersion: 'latest',
@@ -30,7 +30,5 @@ export default defineConfig({
   },
   rules: {
     'import-x/no-cycle': 'error',
-    'import-x/no-unused-modules': ['error', { 'unusedExports': true, src: ['src/**/*.{js,mjs,jsx,ts,tsx,mts}'] }],
-    'import-x/no-unresolved': 'error',
   },
 });

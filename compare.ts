@@ -1,145 +1,255 @@
 /* eslint-disable header/header */
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
+import { performance } from 'node:perf_hooks';
 
 const ROOT_DIR = import.meta.dirname;
+const RUNS_PER_CONFIG = 5;
 
 function formatDuration(duration: number) {
   const roundedDuration = Math.round(duration * 10) / 10;
   return `${roundedDuration.toLocaleString().padStart(8, ' ')}ms`;
 }
 
-type RuleSet = {
-  unused: string;
-  cycle: string;
-  unresolved: string;
+function formatCount(count: number) {
+  return count.toLocaleString().padStart(10, ' ');
+}
+
+function median(values: number[]) {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+type RunResult = {
+  duration: number;
+  count: number;
 };
 
-async function runLint(
-  config: string,
-  { unused, cycle, unresolved }: RuleSet
-): Promise<RuleSet & { total: string; unusedCount: string; cycleCount: string; unresolvedCount: string }> {
-  return new Promise((resolve) => {
+function runOxlintOnce(config: string): Promise<RunResult> {
+  return new Promise((resolve, reject) => {
+    const start = performance.now();
     const proc = spawn(
-      process.execPath,
-      [join(ROOT_DIR, 'node_modules/.bin/eslint'), '-c', config, 'src/**/*'],
+      join(ROOT_DIR, 'node_modules/.bin/oxlint'),
+      ['-c', config, '--format', 'json', 'src'],
       {
         cwd: ROOT_DIR,
         env: {
-          TIMING: '1',
-          NODE_OPTIONS: '--max-old-space-size=12000'
+          ...process.env,
+          NODE_OPTIONS: '--max-old-space-size=12000',
         },
       }
     );
 
-    let data = '';
+    let stdout = '';
+    let stderr = '';
     proc.stdout.on('data', (chunk: Buffer) => {
-      data += chunk.toString();
+      stdout += chunk.toString();
     });
-
     proc.stderr.on('data', (chunk: Buffer) => {
-      console.error(chunk.toString());
+      stderr += chunk.toString();
     });
 
-    proc.on('exit', () => {
-      const lines = data.split('\n');
-      const unusedEntryRegex = new RegExp(`^\\s*[0-9]*:[0-9]*\\s*error.*${unused}$`);
-      const unusedTimeRegex = new RegExp(`^${unused}\\s*\\|\\s*([0-9\\.]*)\\s\\|`);
-      const cycleEntryRegex = new RegExp(`^\\s*[0-9]*:[0-9]*\\s*error.*${cycle}$`);
-      const cycleTimeRegex = new RegExp(`^${cycle}\\s*\\|\\s*([0-9\\.]*)\\s\\|`);
-      const unresolvedEntryRegex = new RegExp(`^\\s*[0-9]*:[0-9]*\\s*error.*${unresolved}$`);
-      const unresolvedTimeRegex = new RegExp(
-        `^${unresolved}\\s*\\|\\s*([0-9\\.]*)\\s\\|`
-      );
-      let unusedCount = 0;
-      let cycleCount = 0;
-      let unresolvedCount = 0;
-      let unusedTime: number | undefined;
-      let cycleTime: number | undefined;
-      let unresolvedTime: number | undefined;
-      for (const line of lines) {
-        if (unusedEntryRegex.test(line)) {
-          unusedCount++;
-        }
-        const unusedMatch = unusedTimeRegex.exec(line);
-        if (unusedMatch) {
-          if (unusedTime !== undefined) {
-            throw new Error('Unused output already found');
-          }
-          unusedTime = parseFloat(unusedMatch[1]);
-        }
-        if (cycleEntryRegex.test(line)) {
-          cycleCount++;
-        }
-        const cycleMatch = cycleTimeRegex.exec(line);
-        if (cycleMatch) {
-          if (cycleTime !== undefined) {
-            throw new Error('Cycle output already found');
-          }
-          cycleTime = parseFloat(cycleMatch[1]);
-        }
-        if (unresolvedEntryRegex.test(line)) {
-          unresolvedCount++;
-        }
-        const unresolvedMatch = unresolvedTimeRegex.exec(line);
-        if (unresolvedMatch) {
-          if (unresolvedTime !== undefined) {
-            throw new Error('Unresolved output already found');
-          }
-          unresolvedTime = parseFloat(unresolvedMatch[1]);
+    proc.on('error', reject);
+
+    proc.on('exit', (code) => {
+      const duration = performance.now() - start;
+      // oxlint returns exit code 1 when diagnostics are reported, which is expected.
+      if (code !== 0 && code !== 1) {
+        return reject(
+          new Error(
+            `oxlint exited with code ${code} for config ${config}\nstderr:\n${stderr}\nstdout:\n${stdout.slice(0, 2000)}`
+          )
+        );
+      }
+
+      let parsed: { diagnostics?: Array<{ severity?: string }> };
+      try {
+        parsed = JSON.parse(stdout);
+      } catch (err) {
+        return reject(
+          new Error(
+            `Failed to parse oxlint JSON output for ${config}: ${(err as Error).message}\nFirst 2kb:\n${stdout.slice(0, 2000)}`
+          )
+        );
+      }
+
+      const diagnostics = parsed.diagnostics ?? [];
+      let count = 0;
+      for (const diag of diagnostics) {
+        if (diag.severity === 'error') {
+          count++;
         }
       }
-      if (!unusedTime || !cycleTime || !unresolvedTime) {
-        throw new Error('Could not find all rule times in output');
-      }
-      resolve({
-        unusedCount: unusedCount.toLocaleString().padStart(10, ' '),
-        cycleCount: cycleCount.toLocaleString().padStart(10, ' '),
-        unresolvedCount: unresolvedCount.toLocaleString().padStart(10, ' '),
-        unused: formatDuration(unusedTime),
-        cycle: formatDuration(cycleTime),
-        unresolved: formatDuration(unresolvedTime),
-        total: formatDuration(unusedTime + cycleTime + unresolvedTime),
-      });
+      resolve({ duration, count });
     });
   });
 }
 
-console.log(`Running Fast Import`);
+async function runOxlint({
+  label,
+  config,
+}: {
+  label: string;
+  config: string;
+}): Promise<RunResult> {
+  const durations: number[] = [];
+  const counts: number[] = [];
+  for (let i = 0; i < RUNS_PER_CONFIG; i++) {
+    const { duration, count } = await runOxlintOnce(config);
+    durations.push(duration);
+    counts.push(count);
+    console.log(
+      `  (${new Date().toLocaleTimeString()}) ${label} run ${i + 1}/${RUNS_PER_CONFIG}: ${formatDuration(duration).trim()} (${count} errors)`
+    );
+  }
+  const minCount = Math.min(...counts);
+  const maxCount = Math.max(...counts);
+  if (minCount !== maxCount) {
+    console.warn(
+      `  ${label}: non-deterministic error count across runs (range ${minCount}-${maxCount})`
+    );
+  }
+  return {
+    duration: median(durations),
+    count: minCount
+  };
+}
 
-const fastImportTime = await runLint('eslint.perf.fast-import.config.mjs', {
-  unused: 'import-integrity/no-unused-exports',
-  cycle: 'import-integrity/no-cycle',
-  unresolved: 'import-integrity/no-unresolved-imports',
+function runESLintOnce(config: string): Promise<RunResult> {
+  return new Promise((resolve, reject) => {
+    const start = performance.now();
+    const proc = spawn(
+      process.execPath,
+      [join(ROOT_DIR, 'node_modules/.bin/eslint'), '-c', config, '--format', 'json', 'src/**/*'],
+      {
+        cwd: ROOT_DIR,
+        env: {
+          ...process.env,
+          NODE_OPTIONS: '--max-old-space-size=12000',
+        },
+      }
+    );
+
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    proc.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+
+    proc.on('error', reject);
+
+    proc.on('exit', (code) => {
+      const duration = performance.now() - start;
+      // eslint returns exit code 1 when diagnostics are reported, which is expected.
+      if (code !== 0 && code !== 1) {
+        return reject(
+          new Error(
+            `eslint exited with code ${code} for config ${config}\nstderr:\n${stderr}\nstdout:\n${stdout.slice(0, 2000)}`
+          )
+        );
+      }
+
+      let parsed: Array<{ errorCount?: number }>;
+      try {
+        parsed = JSON.parse(stdout);
+      } catch (err) {
+        return reject(
+          new Error(
+            `Failed to parse eslint JSON output for ${config}: ${(err as Error).message}\nFirst 2kb:\n${stdout.slice(0, 2000)}`
+          )
+        );
+      }
+
+      let count = 0;
+      for (const result of parsed) {
+        count += result.errorCount ?? 0;
+      }
+      resolve({ duration, count });
+    });
+  });
+}
+
+async function runESLint({
+  label,
+  config,
+}: {
+  label: string;
+  config: string;
+}): Promise<RunResult> {
+  const durations: number[] = [];
+  const counts: number[] = [];
+  for (let i = 0; i < RUNS_PER_CONFIG; i++) {
+    const { duration, count } = await runESLintOnce(config);
+    durations.push(duration);
+    counts.push(count);
+    console.log(
+      `  (${new Date().toLocaleTimeString()}) ${label} run ${i + 1}/${RUNS_PER_CONFIG}: ${formatDuration(duration).trim()} (${count} errors)`
+    );
+  }
+  const minCount = Math.min(...counts);
+  const maxCount = Math.max(...counts);
+  if (minCount !== maxCount) {
+    console.warn(
+      `  ${label}: non-deterministic error count across runs (range ${minCount}-${maxCount})`
+    );
+  }
+  return {
+    duration: median(durations),
+    count: minCount
+  };
+}
+
+console.log(`Running Oxlint Baseline (no-debugger)`);
+const oxlintBaselineResult = await runOxlint({
+  label: 'Baseline',
+  config: 'oxlint.perf.baseline.config.ts'
 });
 
-console.log(`Running Import`);
-const importTime = await runLint('eslint.perf.import.config.mjs', {
-  unused: 'import/no-unused-modules',
-  cycle: 'import/no-cycle',
-  unresolved: 'import/no-unresolved',
+console.log(`Running Oxlint built-in`);
+const oxlintBuiltinResult = await runOxlint({
+  label: 'Import',
+  config: 'oxlint.perf.import.config.ts'
 });
 
-console.log(`Running Import X`);
-const importXTime = await runLint('eslint.perf.import-x.config.mjs', {
-  unused: 'import-x/no-unused-modules',
-  cycle: 'import-x/no-cycle',
-  unresolved: 'import-x/no-unresolved',
+console.log(`Running Fast Import (OxLint)`);
+const oxlintFastImportResult = await runOxlint({
+  label: 'Fast Import',
+  config: 'oxlint.perf.fast-import.config.ts'
 });
 
 
+console.log(`Running ESLint baseline`);
+const eslintBaselineResult = await runESLint({
+  label: 'Baseline',
+  config: 'eslint.perf.baseline.config.mjs'
+});
+
+console.log(`Running Fast Import (ESLint)`);
+const eslintFastImportResult = await runESLint({
+  label: 'Fast Import',
+  config: 'eslint.perf.fast-import.config.mjs',
+});
+
+console.log(`Running Import (ESLint)`);
+const eslintImportResult = await runESLint({
+  label: 'Import',
+  config: 'eslint.perf.import.config.mjs',
+});
+
+console.log(`Running Import X (ESLint)`);
+const eslintImportXResult = await runESLint({
+  label: 'Import X',
+  config: 'eslint.perf.import-x.config.mjs',
+});
 
 console.log(`
-            | Unused     | Cycle      | Unresolved |
-------------|------------|------------|------------|
-Fast Import | ${fastImportTime.unusedCount} | ${fastImportTime.cycleCount} | ${fastImportTime.unresolvedCount} |
-Import      | ${importTime.unusedCount} | ${importTime.cycleCount} | ${importTime.unresolvedCount} |
-Import X    | ${importXTime.unusedCount} | ${importXTime.cycleCount} | ${importXTime.unresolvedCount} |`);
-
-
-console.log(`
-            | Unused     | Cycle      | Unresolved | Total      |
-------------|------------|------------|------------|------------|
-Fast Import | ${fastImportTime.unused} | ${fastImportTime.cycle} | ${fastImportTime.unresolved} | ${fastImportTime.total} |
-Import      | ${importTime.unused} | ${importTime.cycle} | ${importTime.unresolved} | ${importTime.total} |
-Import X    | ${importXTime.unused} | ${importXTime.cycle} | ${importXTime.unresolved} | ${importXTime.total} |`);
+                     | Count      | Time       |
+---------------------|------------|------------|
+Oxlint builtin       | ${formatCount(oxlintBuiltinResult.count - oxlintBaselineResult.count)} | ${formatDuration(oxlintBuiltinResult.duration - oxlintBaselineResult.duration)} |
+Fast import (Oxlint) | ${formatCount(oxlintFastImportResult.count - oxlintBaselineResult.count)} | ${formatDuration(oxlintFastImportResult.duration - oxlintBaselineResult.duration)} |
+Fast Import (ESLint) | ${formatCount(eslintFastImportResult.count - eslintBaselineResult.count)} | ${formatDuration(eslintFastImportResult.duration - eslintBaselineResult.duration)} |
+Import (ESLint)      | ${formatCount(eslintImportResult.count - eslintBaselineResult.count)} | ${formatDuration(eslintImportResult.duration - eslintBaselineResult.duration)} |
+Import X (ESLint)    | ${formatCount(eslintImportXResult.count - eslintBaselineResult.count)} | ${formatDuration(eslintImportXResult.duration - eslintBaselineResult.duration)} |`);

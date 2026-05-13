@@ -5,8 +5,10 @@ import tsParser from '@typescript-eslint/parser';
 
 import plugin from 'import-integrity-lint';
 
+const debugLogging = process.env.DEBUG_LOGGING === '1';
+
 export default defineConfig({
-  files: ['src/**/*.{js,mjs,jsx,ts,tsx,mts}'],
+  files: ['src/**/*.{cjs,js,mjs,jsx,ts,tsx,cts,mts}'],
   languageOptions: {
     parser: tsParser,
     ecmaVersion: 'latest',
@@ -18,12 +20,10 @@ export default defineConfig({
   settings: {
     'import-integrity': {
       packageRootDir: join(import.meta.dirname, 'src'),
-      debugLogging: true
+      debugLogging
     },
   },
   rules: {
     'import-integrity/no-cycle': 'error',
-    'import-integrity/no-unused-exports': 'error',
-    'import-integrity/no-unresolved-imports': 'error',
   },
 });
