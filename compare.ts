@@ -5,6 +5,7 @@ import { performance } from 'node:perf_hooks';
 
 const ROOT_DIR = import.meta.dirname;
 const RUNS_PER_CONFIG = 5;
+const SKIP_ESLINT = process.env.SKIP_ESLINT === '1';
 
 function formatDuration(duration: number) {
   const roundedDuration = Math.round(duration * 10) / 10;
@@ -30,7 +31,7 @@ function runOxlintOnce(config: string): Promise<RunResult> {
     const start = performance.now();
     const proc = spawn(
       join(ROOT_DIR, 'node_modules/.bin/oxlint'),
-      ['-c', config, '--format', 'json', 'src'],
+      ['-c', config, '--format', 'json', '.'],
       {
         cwd: ROOT_DIR,
         env: {
@@ -51,7 +52,7 @@ function runOxlintOnce(config: string): Promise<RunResult> {
 
     proc.on('error', reject);
 
-    proc.on('exit', (code) => {
+    proc.on('close', (code) => {
       const duration = performance.now() - start;
       // oxlint returns exit code 1 when diagnostics are reported, which is expected.
       if (code !== 0 && code !== 1) {
@@ -119,8 +120,8 @@ function runESLintOnce(config: string): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const start = performance.now();
     const proc = spawn(
-      process.execPath,
-      [join(ROOT_DIR, 'node_modules/.bin/eslint'), '-c', config, '--format', 'json', 'src/**/*'],
+      join(ROOT_DIR, 'node_modules/.bin/eslint'),
+      ['-c', config, '--format', 'json', '.'],
       {
         cwd: ROOT_DIR,
         env: {
@@ -141,7 +142,7 @@ function runESLintOnce(config: string): Promise<RunResult> {
 
     proc.on('error', reject);
 
-    proc.on('exit', (code) => {
+    proc.on('close', (code) => {
       const duration = performance.now() - start;
       // eslint returns exit code 1 when diagnostics are reported, which is expected.
       if (code !== 0 && code !== 1) {
@@ -220,6 +221,14 @@ const oxlintFastImportResult = await runOxlint({
   config: 'oxlint.perf.fast-import.config.ts'
 });
 
+if (SKIP_ESLINT) {
+  console.log(`
+                     | Count      | Time       |
+---------------------|------------|------------|
+Oxlint builtin       | ${formatCount(oxlintBuiltinResult.count - oxlintBaselineResult.count)} | ${formatDuration(oxlintBuiltinResult.duration - oxlintBaselineResult.duration)} |
+Fast import (Oxlint) | ${formatCount(oxlintFastImportResult.count - oxlintBaselineResult.count)} | ${formatDuration(oxlintFastImportResult.duration - oxlintBaselineResult.duration)} |`);
+  process.exit(0);
+}
 
 console.log(`Running ESLint baseline`);
 const eslintBaselineResult = await runESLint({
