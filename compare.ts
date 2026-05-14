@@ -31,7 +31,7 @@ function runOxlintOnce(config: string): Promise<RunResult> {
     const start = performance.now();
     const proc = spawn(
       join(ROOT_DIR, 'node_modules/.bin/oxlint'),
-      ['-c', config, '--format', 'json', '.'],
+      ['-c', config, '--format', 'json', 'src'],
       {
         cwd: ROOT_DIR,
         env: {
@@ -121,7 +121,7 @@ function runESLintOnce(config: string): Promise<RunResult> {
     const start = performance.now();
     const proc = spawn(
       join(ROOT_DIR, 'node_modules/.bin/eslint'),
-      ['-c', config, '--format', 'json', '.'],
+      ['-c', config, '--format', 'json', 'src'],
       {
         cwd: ROOT_DIR,
         env: {
